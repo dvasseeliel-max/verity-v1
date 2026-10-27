@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 from supabase import create_client
 from google import genai
-
+from openai import OpenAI
 st.set_page_config(
     page_title="VERITY V1",
     page_icon="🔎",
@@ -18,7 +18,7 @@ st.write("Posez une question, comparez deux réponses et votez pour la meilleure
 SUPABASE_URL = os.getenv("VERITY_SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.getenv("VERITY_SUPABASE_KEY", "").strip()
 GEMINI_KEY = os.getenv("VERITY_GEMINI_KEY", "").strip()
-
+GROQ_KEY = os.getenv("VERITY_GROQ_KEY", "").strip()
 if not SUPABASE_URL or not SUPABASE_KEY or not GEMINI_KEY:
     st.error(
         "Configuration incomplète. Les clés Supabase et Gemini "
@@ -28,6 +28,13 @@ if not SUPABASE_URL or not SUPABASE_KEY or not GEMINI_KEY:
 
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini = genai.Client(api_key=GEMINI_KEY)
+
+groq = None
+if GROQ_KEY:
+    groq = OpenAI(
+        api_key=GROQ_KEY,
+        base_url="https://api.groq.com/openai/v1"
+    )
 
 if "access_token" not in st.session_state:
     st.session_state.access_token = None

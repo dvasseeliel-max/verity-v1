@@ -121,26 +121,60 @@ if st.button("Générer les deux réponses", type="primary"):
     else:
         try:
             with st.spinner("Génération des réponses…"):
+                
+                if groq is None:
+                    st.error(
+                        "Groq n'est pas configuré. "
+                        "Ajoutez VERITY_GROQ_KEY dans les secrets "
+                        "de l'application."
+                    )
+                    st.stop()
+
                 prompt = (
                     "Réponds précisément et utilement à cette question. "
-                    "Ne mentionne pas que tu es une IA si ce n'est pas nécessaire.\n\n"
+                    "Signale les incertitudes et réponds en français "
+                    "si la question est en français.\n\n"
                     + question.strip()
                 )
+
                 response_a = gemini.models.generate_content(
-                    model="gemini-2.5-flash", contents=prompt
-                )
-                response_b = gemini.models.generate_content(
                     model="gemini-2.5-flash",
-                    contents=(
-                        "Réponds à la question avec une approche différente, "
-                        "en restant exact et utile.\n\n" + question.strip()
-                    )
+                    contents=prompt
                 )
+
+                response_b = groq.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tu es un assistant utile, précis et honnête. "
+                                "Réponds en français si la question est en français. "
+                                "Signale clairement les incertitudes."
+                            )
+                        },
+                        {
+                            "role": "user",
+                            "content": question.strip()
+                        }
+                    ],
+                    temperature=0.7,
+                    max_tokens=1200
+                )
+
                 st.session_state.comparison = {
                     "question": question.strip(),
-                    "response_a": response_a.text or "Aucune réponse générée.",
-                    "response_b": response_b.text or "Aucune réponse générée."
+                    "response_a": (
+                        response_a.text or "Aucune réponse générée."
+                    ),
+                    "response_b": (
+                        response_b.choices[0].message.content
+                        or "Aucune réponse générée."
+                    ),
+                    "provider_a": "Google Gemini",
+                    "provider_b": "Groq — Llama 3.3 70B"
                 }
+
         except Exception as e:
             st.error(f"Erreur lors de la génération : {e}")
 

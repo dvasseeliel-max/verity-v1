@@ -137,12 +137,13 @@ if st.button("Générer les deux réponses", type="primary"):
                     "si la question est en français.\n\n"
                     + question.strip()
                 )
-
+start_a = time.perf_counter()
                 response_a = gemini.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt
                 )
-
+time_a = round(time.perf_counter() - start_a, 2)
+start_b = time.perf_counter()
                 response_b = groq.chat.completions.create(
                     model="openai/gpt-oss-120b",
                     messages=[
@@ -162,7 +163,7 @@ if st.button("Générer les deux réponses", type="primary"):
                     temperature=0.7,
                     max_tokens=1200
                 )
-
+time_b = round(time.perf_counter() - start_b, 2)
                 st.session_state.comparison = {
                     "question": question.strip(),
                     "response_a": (

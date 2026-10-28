@@ -258,7 +258,7 @@ if st.button("Générer les deux réponses", type="primary"):
                 )
 
                 # Réponse B : Groq                start_b = time.perf_counter()
-
+                start_b = time.perf_counter()
                 response_b = groq.chat.completions.create(
                     model="openai/gpt-oss-120b",
                     messages=[

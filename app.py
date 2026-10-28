@@ -1,55 +1,107 @@
+
 import os
+import time
 import requests
 import streamlit as st
-import time
 from supabase import create_client
 from google import genai
 from openai import OpenAI
+
+
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
+
 st.set_page_config(
     page_title="VERITY V1",
     page_icon="🔎",
     layout="wide"
 )
 
+
+def read_secret(name):
+    """Lit une clé depuis Streamlit Secrets ou l'environnement."""
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+
+    if not value:
+        value = os.getenv(name, "")
+
+    return str(value).strip()
+
+
+SUPABASE_URL = read_secret("VERITY_SUPABASE_URL").rstrip("/")
+SUPABASE_KEY = read_secret("VERITY_SUPABASE_KEY")
+GEMINI_KEY = read_secret("VERITY_GEMINI_KEY")
+GROQ_KEY = read_secret("VERITY_GROQ_KEY")
+
+
 st.title("VERITY V1")
 st.subheader("Plateforme d'évaluation des intelligences artificielles")
-st.write("Posez une question, comparez deux réponses et votez pour la meilleure.")
+st.write(
+    "Comparez deux réponses d'IA, votez pour la meilleure "
+    "et consultez les résultats."
+)
 
-# Secrets configurés dans l'environnement de l'hébergeur
-SUPABASE_URL = os.getenv("VERITY_SUPABASE_URL", "").strip().rstrip("/")
-SUPABASE_KEY = os.getenv("VERITY_SUPABASE_KEY", "").strip()
-GEMINI_KEY = os.getenv("VERITY_GEMINI_KEY", "").strip()
-GROQ_KEY = os.getenv("VERITY_GROQ_KEY", "").strip()
-if not SUPABASE_URL or not SUPABASE_KEY or not GEMINI_KEY:
+
+if not SUPABASE_URL or not SUPABASE_KEY:
     st.error(
-        "Configuration incomplète. Les clés Supabase et Gemini "
-        "doivent être ajoutées aux secrets de l'application."
+        "Configuration Supabase incomplète. "
+        "Vérifiez les secrets de l'application."
     )
     st.stop()
 
-sb = create_client(SUPABASE_URL, SUPABASE_KEY)
-gemini = genai.Client(api_key=GEMINI_KEY)
+
+if not GEMINI_KEY:
+    st.error(
+        "La clé Gemini est absente. "
+        "Vérifiez VERITY_GEMINI_KEY dans les secrets."
+    )
+    st.stop()
+
+
+try:
+    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    gemini = genai.Client(api_key=GEMINI_KEY)
+except Exception as e:
+    st.error(f"Initialisation impossible : {e}")
+    st.stop()
+
 
 groq = None
+
 if GROQ_KEY:
     groq = OpenAI(
         api_key=GROQ_KEY,
         base_url="https://api.groq.com/openai/v1"
     )
 
+
+# --------------------------------------------------
+# SESSION
+# --------------------------------------------------
+
 if "access_token" not in st.session_state:
     st.session_state.access_token = None
+
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+
 if "comparison" not in st.session_state:
     st.session_state.comparison = None
+
 
 def auth_headers():
     return {
         "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {st.session_state.access_token}",
+        "Authorization": (
+            f"Bearer {st.session_state.access_token}"
+        ),
         "Content-Type": "application/json"
     }
+
 
 def get_user_id():
     response = requests.get(
@@ -60,164 +112,164 @@ def get_user_id():
     response.raise_for_status()
     return response.json()["id"]
 
+
+# --------------------------------------------------
+# INSCRIPTION ET CONNEXION
+# --------------------------------------------------
+
 if not st.session_state.access_token:
-    mode = st.radio("Compte", ["Se connecter", "Créer un compte"], horizontal=True)
+
+    mode = st.radio(
+        "Compte",
+        ["Se connecter", "Créer un compte"],
+        horizontal=True
+    )
+
     email = st.text_input("Adresse e-mail")
-    password = st.text_input("Mot de passe", type="password")
+    password = st.text_input(
+        "Mot de passe",
+        type="password"
+    )
 
     if mode == "Créer un compte":
+
         if st.button("Créer mon compte", type="primary"):
             try:
                 result = sb.auth.sign_up({
                     "email": email.strip(),
                     "password": password
                 })
+
                 session = getattr(result, "session", None)
+
                 if session and session.access_token:
-                    st.session_state.access_token = session.access_token
+                    st.session_state.access_token = (
+                        session.access_token
+                    )
                     st.session_state.user_email = email.strip()
                     st.rerun()
                 else:
                     st.info(
-                        "Compte créé. Si la confirmation par e-mail est activée, "
-                        "confirmez votre adresse avant de vous connecter."
+                        "Compte créé. Si une confirmation "
+                        "par e-mail est demandée, confirmez "
+                        "votre adresse avant de vous connecter."
                     )
+
             except Exception as e:
                 st.error(f"Inscription impossible : {e}")
+
     else:
+
         if st.button("Se connecter", type="primary"):
             try:
                 result = sb.auth.sign_in_with_password({
                     "email": email.strip(),
                     "password": password
                 })
-                st.session_state.access_token = result.session.access_token
+
+                st.session_state.access_token = (
+                    result.session.access_token
+                )
                 st.session_state.user_email = email.strip()
                 st.rerun()
+
             except Exception as e:
                 st.error(f"Connexion impossible : {e}")
+
     st.stop()
+
+
+# --------------------------------------------------
+# VERIFICATION DE LA SESSION
+# --------------------------------------------------
 
 try:
     user_id = get_user_id()
+
 except Exception:
     st.session_state.access_token = None
-    st.warning("Session expirée. Connectez-vous à nouveau.")
+    st.session_state.user_email = ""
+    st.session_state.comparison = None
+
+    st.warning(
+        "Session expirée. Connectez-vous à nouveau."
+    )
     st.stop()
 
-st.caption(f"Connecté : {st.session_state.user_email}")
+
+st.caption(
+    f"Connecté : {st.session_state.user_email}"
+)
+
 if st.button("Se déconnecter"):
     st.session_state.access_token = None
     st.session_state.user_email = ""
     st.session_state.comparison = None
     st.rerun()
 
+
+# --------------------------------------------------
+# COMPARAISON DES DEUX IA
+# --------------------------------------------------
+
 st.divider()
 st.header("Comparer deux réponses")
-question = st.text_area("Votre question", placeholder="Écrivez votre question ici…")
+
+question = st.text_area(
+    "Votre question",
+    placeholder="Écrivez votre question ici…"
+)
 
 
 if st.button("Générer les deux réponses", type="primary"):
-    if not question.strip():
-        st.warning("Écrivez une question avant de continuer.")
-    else:
-        try:
-            if groq is None:
-                st.error(
-                    "Groq n'est pas configuré. "
-                    "Ajoutez VERITY_GROQ_KEY dans les secrets."
-                )
-            else:
-                with st.spinner("Génération des réponses…"):
-                    prompt = (
-                        "Réponds précisément et utilement à cette question. "
-                        "Signale les incertitudes et réponds en français "
-                        "si la question est en français.\n\n"
-                        + question.strip()
-                    )
-
-                    start_a = time.perf_counter()
-                    response_a = gemini.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt
-                    )
-                    time_a = round(time.perf_counter() - start_a, 2)
-
-                    start_b = time.perf_counter()
-                    response_b = groq.chat.completions.create(
-                        model="openai/gpt-oss-120b",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Tu es un assistant utile, précis et honnête. "
-                                    "Réponds en français si la question est en français. "
-                                    "Signale clairement les incertitudes."
-                                )
-                            },
-                            {
-                                "role": "user",
-                                "content": question.strip()
-                            }
-                        ],
-                        temperature=0.7,
-                        max_tokens=1200
-                    )
-                    time_b = round(time.perf_counter() - start_b, 2)
-
-                    st.session_state.comparison = {
-                        "question": question.strip(),
-                        "response_a": (
-                            response_a.text or "Aucune réponse générée."
-                        ),
-                        "response_b": (
-                            response_b.choices[0].message.content
-                            or "Aucune réponse générée."
-                        ),
-                        "provider_a": "Google Gemini",
-                        "provider_b": "Groq — GPT-OSS 120B",
-                        "time_a": time_a,
-                        "time_b": time_b
-                    }
-
-        except Exception as e:
-            st.error(f"Erreur lors de la génération : {e}")
 
     if not question.strip():
-        st.warning("Écrivez une question avant de continuer.")
+        st.warning(
+            "Écrivez une question avant de continuer."
+        )
+
+    elif groq is None:
+        st.error(
+            "Groq n'est pas configuré. "
+            "Vérifiez VERITY_GROQ_KEY dans les secrets."
+        )
+
     else:
         try:
             with st.spinner("Génération des réponses…"):
-                
-                if groq is None:
-                    st.error(
-                        "Groq n'est pas configuré. "
-                        "Ajoutez VERITY_GROQ_KEY dans les secrets "
-                        "de l'application."
-                    )
-                    st.stop()
 
                 prompt = (
-                    "Réponds précisément et utilement à cette question. "
-                    "Signale les incertitudes et réponds en français "
-                    "si la question est en français.\n\n"
+                    "Réponds précisément et utilement à cette "
+                    "question. Signale les incertitudes et "
+                    "réponds en français si la question est "
+                    "en français.\n\n"
                     + question.strip()
                 )
+
+                # Réponse A : Google Gemini
                 start_a = time.perf_counter()
+
                 response_a = gemini.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt
                 )
-time_a = round(time.perf_counter() - start_a, 2)
-start_b = time.perf_counter()
+
+                time_a = round(
+                    time.perf_counter() - start_a, 2
+                )
+
+                # Réponse B : Groq
+                start_b = time.perf_counter()
+
                 response_b = groq.chat.completions.create(
                     model="openai/gpt-oss-120b",
                     messages=[
                         {
                             "role": "system",
                             "content": (
-                                "Tu es un assistant utile, précis et honnête. "
-                                "Réponds en français si la question est en français. "
+                                "Tu es un assistant utile, précis "
+                                "et honnête. Réponds en français "
+                                "si la question est en français. "
                                 "Signale clairement les incertitudes."
                             )
                         },
@@ -229,39 +281,62 @@ start_b = time.perf_counter()
                     temperature=0.7,
                     max_tokens=1200
                 )
-time_b = round(time.perf_counter() - start_b, 2)
+
+                time_b = round(
+                    time.perf_counter() - start_b, 2
+                )
+
+                # Conserver les résultats dans la session
                 st.session_state.comparison = {
                     "question": question.strip(),
                     "response_a": (
-                        response_a.text or "Aucune réponse générée."
+                        response_a.text
+                        or "Aucune réponse générée."
                     ),
                     "response_b": (
                         response_b.choices[0].message.content
                         or "Aucune réponse générée."
                     ),
                     "provider_a": "Google Gemini",
-                    "provider_b": "Groq — Llama 3.3 70B"
+                    "provider_b": "Groq — GPT-OSS 120B",
+                    "time_a": time_a,
+                    "time_b": time_b
                 }
 
         except Exception as e:
-            st.error(f"Erreur lors de la génération : {e}")
+            st.error(
+                f"Erreur lors de la génération : {e}"
+            )
+
+
+# --------------------------------------------------
+# AFFICHAGE DES REPONSES ET VOTE
+# --------------------------------------------------
 
 comparison = st.session_state.comparison
+
 if comparison:
+
     left, right = st.columns(2)
-    
-with left:
-    st.subheader("Réponse A — Gemini")
-    st.caption(f"Temps de génération : {time_a} secondes")
-    st.write(comparison["response_a"])
 
-with right:
-    st.subheader("Réponse B — Groq")
-    st.caption(f"Temps de génération : {time_b} secondes")
-    st.write(comparison["response_b"])
+    with left:
+        st.subheader("Réponse A — Gemini")
+        st.caption(
+            f"Temps de génération : "
+            f"{comparison['time_a']} secondes"
+        )
+        st.write(comparison["response_a"])
 
+    with right:
+        st.subheader("Réponse B — Groq")
+        st.caption(
+            f"Temps de génération : "
+            f"{comparison['time_b']} secondes"
+        )
+        st.write(comparison["response_b"])
 
     st.subheader("Quelle réponse préférez-vous ?")
+
     choice = st.radio(
         "Votre vote",
         ["Réponse A", "Réponse B", "Égalité"],
@@ -269,6 +344,7 @@ with right:
     )
 
     if st.button("Enregistrer mon vote"):
+
         try:
             result = requests.post(
                 SUPABASE_URL + "/functions/v1/save-evaluation",
@@ -281,12 +357,22 @@ with right:
                 },
                 timeout=30
             )
+
             if result.ok:
                 st.success("Vote enregistré avec succès !")
             else:
-                st.error(f"Enregistrement impossible ({result.status_code}) : {result.text}")
+                st.error(
+                    f"Enregistrement impossible "
+                    f"({result.status_code}) : {result.text}"
+                )
+
         except Exception as e:
             st.error(f"Erreur d'enregistrement : {e}")
+
+
+# --------------------------------------------------
+# TABLEAU DE BORD
+# --------------------------------------------------
 
 st.divider()
 st.header("Tableau de bord des évaluations")
@@ -301,23 +387,28 @@ try:
         params={
             "select": "choice",
             "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
             "limit": "1000"
         },
         timeout=20
     )
 
     if stats_result.ok:
+
         stats_rows = stats_result.json()
 
         total_votes = len(stats_rows)
+
         votes_a = sum(
             1 for row in stats_rows
             if row.get("choice") == "Réponse A"
         )
+
         votes_b = sum(
             1 for row in stats_rows
             if row.get("choice") == "Réponse B"
         )
+
         egalites = sum(
             1 for row in stats_rows
             if row.get("choice") == "Égalité"
@@ -327,6 +418,7 @@ try:
             round(votes_a / total_votes * 100, 1)
             if total_votes else 0
         )
+
         taux_b = (
             round(votes_b / total_votes * 100, 1)
             if total_votes else 0
@@ -340,9 +432,10 @@ try:
         col4.metric("Égalités", egalites)
 
         st.caption(
-            "Statistiques calculées à partir de tes évaluations "
-            "enregistrées. Les égalités sont comptées séparément."
+            "Statistiques calculées à partir des évaluations "
+            "enregistrées pour ton compte."
         )
+
     else:
         st.error(
             f"Impossible de charger les statistiques : "
@@ -352,9 +445,16 @@ try:
 except Exception as e:
     st.error(f"Erreur du tableau de bord : {e}")
 
+
+# --------------------------------------------------
+# HISTORIQUE
+# --------------------------------------------------
+
 st.divider()
 st.header("Mon historique")
+
 if st.button("Afficher mes évaluations"):
+
     try:
         result = requests.get(
             SUPABASE_URL + "/rest/v1/evaluations",
@@ -363,20 +463,36 @@ if st.button("Afficher mes évaluations"):
                 "Accept": "application/json"
             },
             params={
-                "select": "id,question,response_a,response_b,choice,created_at",
+                "select": (
+                    "id,question,response_a,response_b,"
+                    "choice,created_at"
+                ),
                 "user_id": f"eq.{user_id}",
                 "order": "created_at.desc",
                 "limit": "50"
             },
             timeout=20
         )
+
         if result.ok:
             rows = result.json()
+
             if rows:
-                st.dataframe(rows, use_container_width=True)
+                st.dataframe(
+                    rows,
+                    use_container_width=True
+                )
             else:
-                st.info("Aucune évaluation enregistrée pour le moment.")
+                st.info(
+                    "Aucune évaluation enregistrée pour le moment."
+                )
+
         else:
-            st.error(f"Historique indisponible ({result.status_code}) : {result.text}")
+            st.error(
+                f"Historique indisponible "
+                f"({result.status_code}) : {result.text}"
+            )
+
     except Exception as e:
         st.error(f"Erreur d'historique : {e}")
+

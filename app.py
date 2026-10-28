@@ -1,6 +1,7 @@
 import os
 import requests
 import streamlit as st
+import time
 from supabase import create_client
 from google import genai
 from openai import OpenAI

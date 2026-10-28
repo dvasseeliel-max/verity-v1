@@ -385,6 +385,109 @@ except Exception as e:
     st.error(f"Erreur du tableau de bord : {e}")
 
 
+# CLASSEMENT DES IA
+st.divider()
+st.header("Classement des intelligences artificielles")
+st.caption(
+    "Classement calculé à partir des évaluations enregistrées "
+    "pour ton compte. Les notes proviennent des utilisateurs."
+)
+
+try:
+    ranking_result = requests.get(
+        SUPABASE_URL + "/rest/v1/evaluations",
+        headers={
+            **auth_headers(),
+            "Accept": "application/json",
+        },
+        params={
+            "select": (
+                "time_a,time_b,relevance_a,accuracy_a,clarity_a,"
+                "relevance_b,accuracy_b,clarity_b"
+            ),
+            "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "limit": "1000",
+        },
+        timeout=20,
+    )
+
+    if ranking_result.ok:
+        ranking_rows = ranking_result.json()
+
+        if not ranking_rows:
+            st.info(
+                "Le classement apparaîtra après tes premières évaluations."
+            )
+        else:
+            def average_for(field):
+                values = [
+                    row[field]
+                    for row in ranking_rows
+                    if isinstance(row.get(field), (int, float))
+                ]
+                return round(sum(values) / len(values), 2) if values else 0
+
+            ranking_data = [
+                {
+                    "IA": "Google Gemini",
+                    "Pertinence / 5": average_for("relevance_a"),
+                    "Exactitude / 5": average_for("accuracy_a"),
+                    "Clarté / 5": average_for("clarity_a"),
+                    "Temps moyen (s)": average_for("time_a"),
+                    "Évaluations": sum(
+                        1 for row in ranking_rows
+                        if row.get("relevance_a") is not None
+                    ),
+                },
+                {
+                    "IA": "Groq — GPT-OSS 120B",
+                    "Pertinence / 5": average_for("relevance_b"),
+                    "Exactitude / 5": average_for("accuracy_b"),
+                    "Clarté / 5": average_for("clarity_b"),
+                    "Temps moyen (s)": average_for("time_b"),
+                    "Évaluations": sum(
+                        1 for row in ranking_rows
+                        if row.get("relevance_b") is not None
+                    ),
+                },
+            ]
+
+            for item in ranking_data:
+                item["Score moyen / 5"] = round(
+                    (
+                        item["Pertinence / 5"]
+                        + item["Exactitude / 5"]
+                        + item["Clarté / 5"]
+                    ) / 3,
+                    2,
+                )
+
+            ranking_data.sort(
+                key=lambda item: item["Score moyen / 5"],
+                reverse=True,
+            )
+
+            st.dataframe(
+                ranking_data,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.caption(
+                "Le score moyen donne le même poids aux trois critères. "
+                "En cas de scores proches, consulte aussi le nombre "
+                "d'évaluations et le temps moyen."
+            )
+    else:
+        st.error(
+            "Impossible de charger le classement : "
+            f"{ranking_result.status_code} — {ranking_result.text}"
+        )
+
+except Exception as e:
+    st.error(f"Erreur du classement : {e}")
+
 # HISTORIQUE
 st.divider()
 st.header("Mon historique")

@@ -216,6 +216,70 @@ if comparison:
             st.error(f"Erreur d'enregistrement : {e}")
 
 st.divider()
+st.header("Tableau de bord des évaluations")
+
+try:
+    stats_result = requests.get(
+        SUPABASE_URL + "/rest/v1/evaluations",
+        headers={
+            **auth_headers(),
+            "Accept": "application/json"
+        },
+        params={
+            "select": "choice",
+            "user_id": f"eq.{user_id}",
+            "limit": "1000"
+        },
+        timeout=20
+    )
+
+    if stats_result.ok:
+        stats_rows = stats_result.json()
+
+        total_votes = len(stats_rows)
+        votes_a = sum(
+            1 for row in stats_rows
+            if row.get("choice") == "Réponse A"
+        )
+        votes_b = sum(
+            1 for row in stats_rows
+            if row.get("choice") == "Réponse B"
+        )
+        egalites = sum(
+            1 for row in stats_rows
+            if row.get("choice") == "Égalité"
+        )
+
+        taux_a = (
+            round(votes_a / total_votes * 100, 1)
+            if total_votes else 0
+        )
+        taux_b = (
+            round(votes_b / total_votes * 100, 1)
+            if total_votes else 0
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric("Évaluations", total_votes)
+        col2.metric("Votes A", votes_a, f"{taux_a}%")
+        col3.metric("Votes B", votes_b, f"{taux_b}%")
+        col4.metric("Égalités", egalites)
+
+        st.caption(
+            "Statistiques calculées à partir de tes évaluations "
+            "enregistrées. Les égalités sont comptées séparément."
+        )
+    else:
+        st.error(
+            f"Impossible de charger les statistiques : "
+            f"{stats_result.status_code}"
+        )
+
+except Exception as e:
+    st.error(f"Erreur du tableau de bord : {e}")
+
+st.divider()
 st.header("Mon historique")
 if st.button("Afficher mes évaluations"):
     try:

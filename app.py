@@ -257,8 +257,7 @@ if st.button("Générer les deux réponses", type="primary"):
                     time.perf_counter() - start_a, 2
                 )
 
-                # Réponse B : Groq
-                start_b = time.perf_counter()
+                # Réponse B : Groq                start_b = time.perf_counter()
 
                 response_b = groq.chat.completions.create(
                     model="openai/gpt-oss-120b",
@@ -386,7 +385,7 @@ try:
             "Accept": "application/json"
         },
         params={
-            "select": "choice",
+            "select": "choice,time_a,time_b",
             "user_id": f"eq.{user_id}",
             "order": "created_at.desc",
             "limit": "1000"
@@ -425,6 +424,43 @@ try:
             if total_votes else 0
         )
 
+        # Moyennes des temps de génération
+        # Les valeurs NULL sont ignorées.
+        temps_a = [
+            float(row["time_a"])
+            for row in stats_rows
+            if isinstance(row.get("time_a"), (int, float))
+        ]
+
+        temps_b = [
+            float(row["time_b"])
+            for row in stats_rows
+            if isinstance(row.get("time_b"), (int, float))
+        ]
+
+        moyenne_a = (
+            round(sum(temps_a) / len(temps_a), 2)
+            if temps_a else None
+        )
+
+        moyenne_b = (
+            round(sum(temps_b) / len(temps_b), 2)
+            if temps_b else None
+        )
+
+        if moyenne_a is None and moyenne_b is None:
+            plus_rapide = "Données insuffisantes"
+        elif moyenne_b is None:
+            plus_rapide = "Gemini"
+        elif moyenne_a is None:
+            plus_rapide = "Groq"
+        elif moyenne_a < moyenne_b:
+            plus_rapide = "Gemini"
+        elif moyenne_b < moyenne_a:
+            plus_rapide = "Groq"
+        else:
+            plus_rapide = "Égalité"
+
         col1, col2, col3, col4 = st.columns(4)
 
         col1.metric("Évaluations", total_votes)
@@ -432,9 +468,30 @@ try:
         col3.metric("Votes B", votes_b, f"{taux_b}%")
         col4.metric("Égalités", egalites)
 
+        st.subheader("Vitesse moyenne des IA")
+
+        speed1, speed2, speed3 = st.columns(3)
+
+        speed1.metric(
+            "Gemini — moyenne",
+            f"{moyenne_a} s"
+            if moyenne_a is not None
+            else "Pas encore de données"
+        )
+
+        speed2.metric(
+            "Groq — moyenne",
+            f"{moyenne_b} s"
+            if moyenne_b is not None
+            else "Pas encore de données"
+        )
+
+        speed3.metric("IA la plus rapide", plus_rapide)
+
         st.caption(
-            "Statistiques calculées à partir des évaluations "
-            "enregistrées pour ton compte."
+            "Les moyennes utilisent uniquement les évaluations "
+            "avec des temps enregistrés. Les anciennes valeurs "
+            "NULL sont ignorées."
         )
 
     else:
@@ -495,4 +552,4 @@ if st.button("Afficher mes évaluations"):
             )
 
     except Exception as e:
-        st.error(f"Erreur d'historique : {e}")         
+        st.error(f"Erreur d'historique : {e}")

@@ -183,12 +183,17 @@ time_b = round(time.perf_counter() - start_b, 2)
 comparison = st.session_state.comparison
 if comparison:
     left, right = st.columns(2)
-    with left:
-        st.subheader("Réponse A")
-        st.write(comparison["response_a"])
-    with right:
-        st.subheader("Réponse B")
-        st.write(comparison["response_b"])
+    
+with left:
+    st.subheader("Réponse A — Gemini")
+    st.caption(f"Temps de génération : {time_a} secondes")
+    st.write(comparison["response_a"])
+
+with right:
+    st.subheader("Réponse B — Groq")
+    st.caption(f"Temps de génération : {time_b} secondes")
+    st.write(comparison["response_b"])
+
 
     st.subheader("Quelle réponse préférez-vous ?")
     choice = st.radio(

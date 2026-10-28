@@ -116,7 +116,73 @@ st.divider()
 st.header("Comparer deux réponses")
 question = st.text_area("Votre question", placeholder="Écrivez votre question ici…")
 
+
 if st.button("Générer les deux réponses", type="primary"):
+    if not question.strip():
+        st.warning("Écrivez une question avant de continuer.")
+    else:
+        try:
+            if groq is None:
+                st.error(
+                    "Groq n'est pas configuré. "
+                    "Ajoutez VERITY_GROQ_KEY dans les secrets."
+                )
+            else:
+                with st.spinner("Génération des réponses…"):
+                    prompt = (
+                        "Réponds précisément et utilement à cette question. "
+                        "Signale les incertitudes et réponds en français "
+                        "si la question est en français.\n\n"
+                        + question.strip()
+                    )
+
+                    start_a = time.perf_counter()
+                    response_a = gemini.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=prompt
+                    )
+                    time_a = round(time.perf_counter() - start_a, 2)
+
+                    start_b = time.perf_counter()
+                    response_b = groq.chat.completions.create(
+                        model="openai/gpt-oss-120b",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Tu es un assistant utile, précis et honnête. "
+                                    "Réponds en français si la question est en français. "
+                                    "Signale clairement les incertitudes."
+                                )
+                            },
+                            {
+                                "role": "user",
+                                "content": question.strip()
+                            }
+                        ],
+                        temperature=0.7,
+                        max_tokens=1200
+                    )
+                    time_b = round(time.perf_counter() - start_b, 2)
+
+                    st.session_state.comparison = {
+                        "question": question.strip(),
+                        "response_a": (
+                            response_a.text or "Aucune réponse générée."
+                        ),
+                        "response_b": (
+                            response_b.choices[0].message.content
+                            or "Aucune réponse générée."
+                        ),
+                        "provider_a": "Google Gemini",
+                        "provider_b": "Groq — GPT-OSS 120B",
+                        "time_a": time_a,
+                        "time_b": time_b
+                    }
+
+        except Exception as e:
+            st.error(f"Erreur lors de la génération : {e}")
+
     if not question.strip():
         st.warning("Écrivez une question avant de continuer.")
     else:

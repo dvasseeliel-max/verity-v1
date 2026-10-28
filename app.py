@@ -226,7 +226,7 @@ if st.button("Afficher mes évaluations"):
                 "Accept": "application/json"
             },
             params={
-                "select": "id,question,choice,created_at",
+                "select": "id,question,response_a,response_b,choice,created_at",
                 "user_id": f"eq.{user_id}",
                 "order": "created_at.desc",
                 "limit": "50"

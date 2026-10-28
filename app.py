@@ -137,7 +137,7 @@ if st.button("Générer les deux réponses", type="primary"):
                     "si la question est en français.\n\n"
                     + question.strip()
                 )
-start_a = time.perf_counter()
+                start_a = time.perf_counter()
                 response_a = gemini.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt

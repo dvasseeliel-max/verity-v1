@@ -1,4 +1,3 @@
-
 import os
 import time
 import requests
@@ -353,7 +352,9 @@ if comparison:
                     "question": comparison["question"],
                     "response_a": comparison["response_a"],
                     "response_b": comparison["response_b"],
-                    "choice": choice
+                    "choice": choice,
+                    "time_a": comparison["time_a"],
+                    "time_b": comparison["time_b"]
                 },
                 timeout=30
             )
@@ -465,7 +466,7 @@ if st.button("Afficher mes évaluations"):
             params={
                 "select": (
                     "id,question,response_a,response_b,"
-                    "choice,created_at"
+                    "choice,time_a,time_b,created_at"
                 ),
                 "user_id": f"eq.{user_id}",
                 "order": "created_at.desc",
@@ -494,5 +495,4 @@ if st.button("Afficher mes évaluations"):
             )
 
     except Exception as e:
-        st.error(f"Erreur d'historique : {e}")
-
+        st.error(f"Erreur d'historique : {e}")         

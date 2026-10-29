@@ -29,11 +29,12 @@ SUPABASE_URL = read_secret("VERITY_SUPABASE_URL").rstrip("/")
 SUPABASE_KEY = read_secret("VERITY_SUPABASE_KEY")
 GEMINI_KEY = read_secret("VERITY_GEMINI_KEY")
 GROQ_KEY = read_secret("VERITY_GROQ_KEY")
+OPENROUTER_KEY = read_secret("VERITY_OPENROUTER_KEY")
 
 st.title("VERITY V1")
 st.subheader("Plateforme d'évaluation des intelligences artificielles")
 st.write(
-    "Comparez deux réponses d'IA, évaluez leur qualité "
+    "Comparez trois réponses d'IA, évaluez leur qualité "
     "et consultez les résultats."
 )
 
@@ -57,6 +58,13 @@ if GROQ_KEY:
     groq = OpenAI(
         api_key=GROQ_KEY,
         base_url="https://api.groq.com/openai/v1",
+    )
+
+openrouter = None
+if OPENROUTER_KEY:
+    openrouter = OpenAI(
+        api_key=OPENROUTER_KEY,
+        base_url="https://openrouter.ai/api/v1",
     )
 
 
@@ -155,21 +163,26 @@ if st.button("Se déconnecter"):
 
 # COMPARAISON DES IA
 st.divider()
-st.header("Comparer deux réponses")
+st.header("Comparer trois réponses")
 
 question = st.text_area(
     "Votre question",
     placeholder="Écrivez votre question ici…",
 )
 
-if st.button("Générer les deux réponses", type="primary"):
+if st.button("Générer les trois réponses", type="primary"):
     if not question.strip():
         st.warning("Écrivez une question avant de continuer.")
     elif groq is None:
         st.error("Groq n'est pas configuré. Vérifiez VERITY_GROQ_KEY.")
+    elif openrouter is None:
+        st.error(
+            "OpenRouter n'est pas configuré. Vérifiez VERITY_OPENROUTER_KEY "
+            "dans les Secrets de Streamlit."
+        )
     else:
         try:
-            with st.spinner("Génération des réponses…"):
+            with st.spinner("Génération des trois réponses…"):
                 prompt = (
                     "Réponds précisément et utilement à cette question. "
                     "Signale les incertitudes et réponds en français si "
@@ -198,27 +211,47 @@ if st.button("Générer les deux réponses", type="primary"):
                                 "français. Signale clairement les incertitudes."
                             ),
                         },
-                        {
-                            "role": "user",
-                            "content": question.strip(),
-                        },
+                        {"role": "user", "content": question.strip()},
                     ],
                     temperature=0.7,
                     max_tokens=1200,
                 )
                 time_b = round(time.perf_counter() - start_b, 2)
 
+                # Réponse C : OpenRouter (modèle gratuit disponible)
+                start_c = time.perf_counter()
+                response_c = openrouter.chat.completions.create(
+                    model="openrouter/free",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tu es un assistant utile, précis et honnête. "
+                                "Réponds en français si la question est en "
+                                "français. Signale clairement les incertitudes."
+                            ),
+                        },
+                        {"role": "user", "content": question.strip()},
+                    ],
+                    temperature=0.7,
+                    max_tokens=1200,
+                )
+                time_c = round(time.perf_counter() - start_c, 2)
+
                 st.session_state.comparison = {
                     "question": question.strip(),
-                    "response_a": (
-                        response_a.text or "Aucune réponse générée."
-                    ),
+                    "response_a": response_a.text or "Aucune réponse générée.",
                     "response_b": (
                         response_b.choices[0].message.content
                         or "Aucune réponse générée."
                     ),
+                    "response_c": (
+                        response_c.choices[0].message.content
+                        or "Aucune réponse générée."
+                    ),
                     "time_a": time_a,
                     "time_b": time_b,
+                    "time_c": time_c,
                 }
         except Exception as e:
             st.error(f"Erreur lors de la génération : {e}")
@@ -228,24 +261,29 @@ if st.button("Générer les deux réponses", type="primary"):
 comparison = st.session_state.comparison
 
 if comparison:
-    left, right = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
 
-    with left:
+    with col_a:
         st.subheader("Réponse A — Gemini")
-        st.caption(f"Temps de génération : {comparison['time_a']} secondes")
+        st.caption(f"Temps : {comparison['time_a']} secondes")
         st.write(comparison["response_a"])
 
-    with right:
-        st.subheader("Réponse B — Groq")
-        st.caption(f"Temps de génération : {comparison['time_b']} secondes")
+    with col_b:
+        st.subheader("Réponse B — Groq GPT-OSS 120B")
+        st.caption(f"Temps : {comparison['time_b']} secondes")
         st.write(comparison["response_b"])
+
+    with col_c:
+        st.subheader("Réponse C — OpenRouter")
+        st.caption(f"Temps : {comparison['time_c']} secondes")
+        st.write(comparison["response_c"])
 
     st.divider()
     st.subheader("1. Votre vote")
 
     choice = st.radio(
         "Quelle réponse préférez-vous ?",
-        ["Réponse A", "Réponse B", "Égalité"],
+        ["Réponse A", "Réponse B", "Réponse C", "Égalité"],
         horizontal=True,
         key="vote_choice",
     )
@@ -253,53 +291,59 @@ if comparison:
     st.subheader("2. Évaluez la qualité des réponses")
     st.caption("Pour chaque critère, choisissez une note de 1 à 5.")
 
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
 
     with col_a:
         st.markdown("### Réponse A — Gemini")
         relevance_a = st.select_slider(
-            "Pertinence — A",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="relevance_a",
+            "Pertinence — A", options=[1, 2, 3, 4, 5],
+            value=3, key="relevance_a",
             help="La réponse répond-elle vraiment à la question ?",
         )
         accuracy_a = st.select_slider(
-            "Exactitude — A",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="accuracy_a",
+            "Exactitude — A", options=[1, 2, 3, 4, 5],
+            value=3, key="accuracy_a",
             help="Les informations semblent-elles correctes ?",
         )
         clarity_a = st.select_slider(
-            "Clarté — A",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="clarity_a",
+            "Clarté — A", options=[1, 2, 3, 4, 5],
+            value=3, key="clarity_a",
             help="La réponse est-elle claire et compréhensible ?",
         )
 
     with col_b:
         st.markdown("### Réponse B — Groq")
         relevance_b = st.select_slider(
-            "Pertinence — B",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="relevance_b",
+            "Pertinence — B", options=[1, 2, 3, 4, 5],
+            value=3, key="relevance_b",
             help="La réponse répond-elle vraiment à la question ?",
         )
         accuracy_b = st.select_slider(
-            "Exactitude — B",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="accuracy_b",
+            "Exactitude — B", options=[1, 2, 3, 4, 5],
+            value=3, key="accuracy_b",
             help="Les informations semblent-elles correctes ?",
         )
         clarity_b = st.select_slider(
-            "Clarté — B",
-            options=[1, 2, 3, 4, 5],
-            value=3,
-            key="clarity_b",
+            "Clarté — B", options=[1, 2, 3, 4, 5],
+            value=3, key="clarity_b",
+            help="La réponse est-elle claire et compréhensible ?",
+        )
+
+    with col_c:
+        st.markdown("### Réponse C — OpenRouter")
+        relevance_c = st.select_slider(
+            "Pertinence — C", options=[1, 2, 3, 4, 5],
+            value=3, key="relevance_c",
+            help="La réponse répond-elle vraiment à la question ?",
+        )
+        accuracy_c = st.select_slider(
+            "Exactitude — C", options=[1, 2, 3, 4, 5],
+            value=3, key="accuracy_c",
+            help="Les informations semblent-elles correctes ?",
+        )
+        clarity_c = st.select_slider(
+            "Clarté — C", options=[1, 2, 3, 4, 5],
+            value=3, key="clarity_c",
             help="La réponse est-elle claire et compréhensible ?",
         )
 
@@ -309,15 +353,20 @@ if comparison:
                 "question": comparison["question"],
                 "response_a": comparison["response_a"],
                 "response_b": comparison["response_b"],
+                "response_c": comparison["response_c"],
                 "choice": choice,
                 "time_a": comparison["time_a"],
                 "time_b": comparison["time_b"],
+                "time_c": comparison["time_c"],
                 "relevance_a": relevance_a,
                 "accuracy_a": accuracy_a,
                 "clarity_a": clarity_a,
                 "relevance_b": relevance_b,
                 "accuracy_b": accuracy_b,
                 "clarity_b": clarity_b,
+                "relevance_c": relevance_c,
+                "accuracy_c": accuracy_c,
+                "clarity_c": clarity_c,
             }
 
             result = requests.post(
@@ -329,7 +378,7 @@ if comparison:
 
             if result.ok:
                 st.success(
-                    "Vote, temps de génération et six notes enregistrés !"
+                    "Vote, temps de génération et neuf notes enregistrés !"
                 )
                 st.json(result.json().get("evaluation", {}))
             else:
@@ -361,24 +410,21 @@ try:
     if stats_result.ok:
         stats_rows = stats_result.json()
         total_votes = len(stats_rows)
-        votes_a = sum(
-            1 for row in stats_rows if row.get("choice") == "Réponse A"
-        )
-        votes_b = sum(
-            1 for row in stats_rows if row.get("choice") == "Réponse B"
-        )
-        egalites = sum(
-            1 for row in stats_rows if row.get("choice") == "Égalité"
-        )
+        votes_a = sum(1 for row in stats_rows if row.get("choice") == "Réponse A")
+        votes_b = sum(1 for row in stats_rows if row.get("choice") == "Réponse B")
+        votes_c = sum(1 for row in stats_rows if row.get("choice") == "Réponse C")
+        egalites = sum(1 for row in stats_rows if row.get("choice") == "Égalité")
 
         taux_a = round(votes_a / total_votes * 100, 1) if total_votes else 0
         taux_b = round(votes_b / total_votes * 100, 1) if total_votes else 0
+        taux_c = round(votes_c / total_votes * 100, 1) if total_votes else 0
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Évaluations", total_votes)
         c2.metric("Votes A", votes_a, f"{taux_a}%")
         c3.metric("Votes B", votes_b, f"{taux_b}%")
-        c4.metric("Égalités", egalites)
+        c4.metric("Votes C", votes_c, f"{taux_c}%")
+        c5.metric("Égalités", egalites)
     else:
         st.error(f"Statistiques indisponibles : {stats_result.status_code}")
 except Exception as e:
@@ -396,14 +442,13 @@ st.caption(
 try:
     ranking_result = requests.get(
         SUPABASE_URL + "/rest/v1/evaluations",
-        headers={
-            **auth_headers(),
-            "Accept": "application/json",
-        },
+        headers={**auth_headers(), "Accept": "application/json"},
         params={
             "select": (
-                "time_a,time_b,relevance_a,accuracy_a,clarity_a,"
-                "relevance_b,accuracy_b,clarity_b"
+                "time_a,time_b,time_c,"
+                "relevance_a,accuracy_a,clarity_a,"
+                "relevance_b,accuracy_b,clarity_b,"
+                "relevance_c,accuracy_c,clarity_c"
             ),
             "user_id": f"eq.{user_id}",
             "order": "created_at.desc",
@@ -451,6 +496,17 @@ try:
                         if row.get("relevance_b") is not None
                     ),
                 },
+                {
+                    "IA": "OpenRouter — modèle gratuit",
+                    "Pertinence / 5": average_for("relevance_c"),
+                    "Exactitude / 5": average_for("accuracy_c"),
+                    "Clarté / 5": average_for("clarity_c"),
+                    "Temps moyen (s)": average_for("time_c"),
+                    "Évaluations": sum(
+                        1 for row in ranking_rows
+                        if row.get("relevance_c") is not None
+                    ),
+                },
             ]
 
             for item in ranking_data:
@@ -476,8 +532,8 @@ try:
 
             st.caption(
                 "Le score moyen donne le même poids aux trois critères. "
-                "En cas de scores proches, consulte aussi le nombre "
-                "d'évaluations et le temps moyen."
+                "Compare aussi le nombre d'évaluations et le temps moyen. "
+                "Les modèles gratuits proposés par OpenRouter peuvent varier."
             )
     else:
         st.error(
@@ -487,6 +543,7 @@ try:
 
 except Exception as e:
     st.error(f"Erreur du classement : {e}")
+
 
 # HISTORIQUE
 st.divider()
@@ -499,9 +556,10 @@ if st.button("Afficher mes évaluations"):
             headers={**auth_headers(), "Accept": "application/json"},
             params={
                 "select": (
-                    "id,question,response_a,response_b,choice,created_at,"
-                    "time_a,time_b,relevance_a,accuracy_a,clarity_a,"
-                    "relevance_b,accuracy_b,clarity_b"
+                    "id,question,response_a,response_b,response_c,choice,created_at,"
+                    "time_a,time_b,time_c,relevance_a,accuracy_a,clarity_a,"
+                    "relevance_b,accuracy_b,clarity_b,"
+                    "relevance_c,accuracy_c,clarity_c"
                 ),
                 "user_id": f"eq.{user_id}",
                 "order": "created_at.desc",

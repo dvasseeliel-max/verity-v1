@@ -3,3 +3,5 @@ supabase
 google-genai
 requests
 openai
+fpdf2
+matplotlib

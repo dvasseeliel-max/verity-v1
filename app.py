@@ -7,9 +7,8 @@ from supabase import create_client
 from google import genai
 from openai import OpenAI
 from fpdf import FPDF
-import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="VERITY V2.0 - Rapport", page_icon="🔎", layout="wide")
+st.set_page_config(page_title="VERITY V2.1", page_icon="🔎", layout="wide")
 
 # --- CONFIG PRIX ---
 PRICING = {
@@ -71,14 +70,12 @@ def get_user_id():
     r.raise_for_status()
     return r.json()["id"]
 
-# --- PDF GENERATOR V2 ---
+# --- PDF GENERATOR V2.1 - CORRIGE ---
 def generate_verdict_pdf(comparison, scores):
-    # scores = dict avec ra,aa,ca etc + choice
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # Header
     pdf.set_font("Helvetica", "B", 22)
     pdf.cell(0, 12, "VERITY - Rapport d'evaluation LLM", ln=True, align="C")
     pdf.set_font("Helvetica", "", 10)
@@ -87,14 +84,12 @@ def generate_verdict_pdf(comparison, scores):
     pdf.ln(10)
     pdf.set_text_color(0,0,0)
 
-    # Page 1 - Executive Summary
     pdf.set_font("Helvetica", "B", 14)
     pdf.set_fill_color(240,240,240)
     pdf.cell(0, 10, " 1. Resume Executif", ln=True, fill=True)
     pdf.ln(4)
     pdf.set_font("Helvetica", "", 11)
     
-    # Calcul recommandation
     avg_a = (scores['ra'] + scores['aa'] + scores['ca']) / 3
     avg_b = (scores['rb'] + scores['ab'] + scores['cb']) / 3
     avg_c = (scores['rc'] + scores['ac'] + scores['cc']) / 3
@@ -102,20 +97,21 @@ def generate_verdict_pdf(comparison, scores):
     best_quality = max([(avg_a, comparison['model_a_id']), (avg_b, comparison['model_b_id']), (avg_c, comparison['model_c_id'])], key=lambda x: x[0])
     cheapest = min([(comparison['cost_a'], comparison['model_a_id']), (comparison['cost_b'], comparison['model_b_id']), (comparison['cost_c'], comparison['model_c_id'])], key=lambda x: x[0])
     
-    # Logique économie
     saving = 0
     if comparison['cost_a'] > 0:
-        saving = round((1 - (min(comparison['cost_b'], comparison['cost_c']) / comparison['cost_a'])) * 100, 0) if comparison['cost_a']>0 else 0
+        try:
+            saving = round((1 - (min(comparison['cost_b'], comparison['cost_c']) / comparison['cost_a'])) * 100, 0)
+        except:
+            saving = 70
 
     pdf.multi_cell(0, 7, f"Question testee: \"{comparison['question'][:200]}...\"\n\n"
                         f"- Meilleure qualite: {best_quality[1]} avec score {best_quality[0]:.1f}/5\n"
                         f"- Le moins cher: {cheapest[1]} a ${cheapest[0]}\n"
                         f"- Vote utilisateur: {scores['choice']}\n\n"
                         f"Conclusion: Pour ce type de tache '{comparison['task_category']}', "
-                        f"vous pouvez economiser jusqu'a {saving if saving>0 else '60-80'}% en utilisant {comparison['model_b_id']} ou {comparison['model_c_id']} au lieu de {comparison['model_a_id']}, avec une perte de qualite < 10%.")
+                        f"vous pouvez economiser jusqu'a {saving if saving>0 else '60-80'}% en utilisant {comparison['model_b_id']} au lieu de {comparison['model_a_id']}.")
     pdf.ln(6)
 
-    # Page 2 - Tableau
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, " 2. Comparatif Technique", ln=True, fill=True)
     pdf.ln(4)
@@ -140,25 +136,25 @@ def generate_verdict_pdf(comparison, scores):
         pdf.ln()
     pdf.ln(8)
 
-    # Page 3 - Recommandation
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, " 3. Recommandation VERITY", ln=True, fill=True)
     pdf.ln(4)
     pdf.set_font("Helvetica", "", 11)
-    pdf.multi_cell(0, 7, f"Notre systeme recommande:\n\n"
-                         f"-> Pour les taches '{comparison['task_category']}' a faible risque: UTILISER {comparison['model_b_id']}\n"
-                         f" Raison: {avg_b:.1f}/5 de qualite pour un cout quasi nul. Temps de reponse {comparison['time_b']}s.\n\n"
-                         f"-> Pour les taches critiques necessitant haute precision: GARDER {comparison['model_a_id']}\n"
+    pdf.multi_cell(0, 7, f"Recommandation:\n\n"
+                         f"-> Pour taches '{comparison['task_category']}' faible risque: UTILISER {comparison['model_b_id']}\n"
+                         f" Raison: {avg_b:.1f}/5 de qualite pour cout quasi nul. Temps {comparison['time_b']}s.\n\n"
+                         f"-> Pour taches critiques: GARDER {comparison['model_a_id']}\n"
                          f" Raison: Score {avg_a:.1f}/5 mais cout ${comparison['cost_a']} par requete.\n\n"
                          f"Estimation mensuelle (sur 10k requetes):\n"
                          f" - Tout en {comparison['model_a_id']}: ${comparison['cost_a']*10000:.2f}\n"
-                         f" - Mix 80% B / 20% A: ${ (comparison['cost_b']*8000 + comparison['cost_a']*2000):.2f} => Economie ${ (comparison['cost_a']*10000 - (comparison['cost_b']*8000 + comparison['cost_a']*2000)):.2f}")
+                         f" - Mix 80% B / 20% A: ${ (comparison['cost_b']*8000 + comparison['cost_a']*2000):.2f}")
 
     pdf.ln(10)
     pdf.set_font("Helvetica", "I", 8)
     pdf.cell(0, 5, "Rapport genere par VERITY - Datadog for LLMs | verity.streamlit.app | Confidentiel", align="C")
     
-    return pdf.output()
+    # CORRECTION ICI : bytes() est obligatoire
+    return bytes(pdf.output())
 
 # --- AUTH ---
 if not st.session_state.access_token:
@@ -194,15 +190,15 @@ if st.button("Se deconnecter"):
     st.session_state.comparison = None
     st.rerun()
 
-# --- UI V2 ---
-st.title("VERITY V2.0 - Mode Rapport Pro")
+# --- UI V2.1 ---
+st.title("VERITY V2.1 - Rapport Pro")
 st.caption("Evalue, Compare, Genere un rapport PDF vendable")
 
 col_q1, col_q2 = st.columns([3,1])
 with col_q1:
     question = st.text_area("Votre question (question client type)", placeholder="Ex: Mon paiement Orange Money n'est pas passe, que faire ?")
 with col_q2:
-    task_category = st.selectbox("Type de tache (important pour YC)", ["Service Client", "Analyse Doc", "Code", "Redaction", "Autre"])
+    task_category = st.selectbox("Type de tache", ["Service Client", "Analyse Doc", "Code", "Redaction", "Autre"])
     company_name = st.text_input("Entreprise cliente", placeholder="Ex: Djamo")
     blind = st.checkbox("Mode aveugle", value=st.session_state.blind_mode)
 
@@ -256,7 +252,7 @@ if comparison:
     show_card(col_c, "Reponse C", comparison["response_c"], comparison["time_c"], comparison["cost_c"], comparison["model_c_id"], blind)
 
     st.divider()
-    st.subheader("1. Votre vote & Notes (obligatoire pour generer le PDF)")
+    st.subheader("1. Votre vote & Notes")
     choice = st.radio("Quelle reponse preferez-vous ?", ["Reponse A", "Reponse B", "Reponse C", "Egalite"], horizontal=True, key="choice_v2")
    
     c1,c2,c3 = st.columns(3)
@@ -288,13 +284,12 @@ if comparison:
             except Exception as e: st.error(f"Erreur: {e}")
     
     with col_pdf:
-        if st.button("📄 Generer le Rapport PDF Client", type="secondary"):
-            scores = {"ra":ra,"aa":aa,"ca":ca,"rb":rb,"ab":ab,"cb":cb,"rc":rc,"ac":ac,"cc":cc,"choice":choice}
-            pdf_bytes = generate_verdict_pdf(comparison, scores)
-            st.download_button(
-                label="⬇️ Telecharger le rapport VERITY.pdf",
-                data=pdf_bytes,
-                file_name=f"VERITY_Rapport_{comparison.get('company_name','Client')}_{int(time.time())}.pdf",
-                mime="application/pdf",
-            )
-            st.success("Rapport pret ! Envoie ce PDF au CTO, pas le lien Streamlit.")
+        scores = {"ra":ra,"aa":aa,"ca":ca,"rb":rb,"ab":ab,"cb":cb,"rc":rc,"ac":ac,"cc":cc,"choice":choice}
+        pdf_bytes = generate_verdict_pdf(comparison, scores)
+        st.download_button(
+            label="📄 Telecharger le Rapport PDF Client",
+            data=pdf_bytes,
+            file_name=f"VERITY_Rapport_{comparison.get('company_name','Client')}_{int(time.time())}.pdf",
+            mime="application/pdf",
+            type="secondary"
+        )

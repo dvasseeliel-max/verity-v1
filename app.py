@@ -148,8 +148,8 @@ except Exception:
     st.warning("Session expiree.")
     st.stop()
 
-# --- TABS V2.3 ---
-tab_eval, tab_dash = st.tabs(["🔎 Evaluer", "📊 Dashboard Business (YC)"])
+# --- TABS V2.3 - VERSION CLIENT PROPRE ---
+tab_eval, tab_dash = st.tabs(["🔎 Evaluer", "📊 Dashboard"])
 
 with tab_eval:
     st.title("VERITY V2.3 - Mode Evaluation")
@@ -190,7 +190,7 @@ with tab_eval:
                     "cost_a": cost_a, "cost_b": cost_b, "cost_c": cost_c,
                     "tokens_a": out_a, "tokens_b": out_b, "tokens_c": out_c,
                 }
-    
+   
     comparison = st.session_state.comparison
     if comparison:
         col_a, col_b, col_c = st.columns(3)
@@ -219,14 +219,14 @@ with tab_eval:
                 try:
                     payload = {
                         "user_id": user_id,
-                        "question": comparison["question"], 
-                        "response_a": comparison["response_a"], 
-                        "response_b": comparison["response_b"], 
+                        "question": comparison["question"],
+                        "response_a": comparison["response_a"],
+                        "response_b": comparison["response_b"],
                         "response_c": comparison["response_c"],
-                        "choice": choice, 
+                        "choice": choice,
                         "time_a": comparison["time_a"], "time_b": comparison["time_b"], "time_c": comparison["time_c"],
-                        "relevance_a": ra, "accuracy_a": aa, "clarity_a": ca, 
-                        "relevance_b": rb, "accuracy_b": ab, "clarity_b": cb, 
+                        "relevance_a": ra, "accuracy_a": aa, "clarity_a": ca,
+                        "relevance_b": rb, "accuracy_b": ab, "clarity_b": cb,
                         "relevance_c": rc, "accuracy_c": ac, "clarity_c": cc,
                         "model_a_id": comparison["model_a_id"], "model_b_id": comparison["model_b_id"], "model_c_id": comparison["model_c_id"],
                         "task_category": comparison["task_category"], "company_name": comparison["company_name"],
@@ -250,37 +250,33 @@ with tab_eval:
             )
 
 with tab_dash:
-    st.title("📊 VERITY Dashboard - Preuve pour YC")
-    st.caption("Voici tes metriques de traction. Fais une capture d'ecran pour ta candidature YC.")
-    
+    st.title("📊 VERITY Dashboard")
+    st.caption("Vos evaluations et metriques d'economie.")
+   
     try:
-        # Recupere les 200 dernieres evaluations
         data = sb.table("evaluations").select("*").order("created_at", desc=True).limit(200).execute()
         rows = data.data
-        
+       
         if not rows:
             st.info("Aucune evaluation encore. Va dans l'onglet Evaluer et enregistre ta premiere evaluation.")
         else:
             df = pd.DataFrame(rows)
-            
-            # --- METRIQUES YC ---
+           
             total = len(df)
             companies = df['company_name'].nunique() if 'company_name' in df else 1
             avg_time_a = df['time_a'].mean() if 'time_a' in df else 0
             avg_time_b = df['time_b'].mean() if 'time_b' in df else 0
-            
+           
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Evaluations", f"{total}", "Ta traction")
-            col2.metric("Entreprises testees", f"{companies}", "Design partners")
+            col1.metric("Total Evaluations", f"{total}")
+            col2.metric("Entreprises testees", f"{companies}")
             col3.metric("Temps moyen Gemini", f"{avg_time_a:.2f}s")
-            col4.metric("Temps moyen Groq", f"{avg_time_b:.2f}s", delta="70% plus rapide", delta_color="normal")
-            
+            col4.metric("Temps moyen Groq", f"{avg_time_b:.2f}s", delta="Plus rapide", delta_color="normal")
+           
             st.divider()
-            
-            # --- TABLEAU PAR ENTREPRISE ---
+           
             st.subheader("Détail par entreprise")
             if 'company_name' in df.columns:
-                # Nettoie les noms vides
                 df['company_name'] = df['company_name'].fillna('N/A').replace('', 'N/A')
                 summary = df.groupby('company_name').agg(
                     evaluations=('id', 'count'),
@@ -289,29 +285,27 @@ with tab_dash:
                     choice_pref=('choice', lambda x: x.mode().iloc[0] if not x.mode().empty else 'N/A')
                 ).reset_index()
                 st.dataframe(summary, use_container_width=True)
-            
+           
             st.divider()
-            
-            # --- TABLEAU COMPLET ---
+           
             st.subheader(f"Les {min(50, total)} dernières évaluations")
             display_cols = [c for c in ['created_at','company_name','task_category','question','choice','time_a','time_b','time_c'] if c in df.columns]
             df_display = df[display_cols].copy()
             if 'question' in df_display.columns:
                 df_display['question'] = df_display['question'].str[:80] + "..."
             st.dataframe(df_display.head(50), use_container_width=True)
-            
-            # --- CALCUL ECONOMIE ---
+           
             st.divider()
-            st.subheader("💰 Calculateur d'économie (ton pitch YC)")
-            st.write("Si tes clients font 10,000 requêtes par mois :")
+            st.subheader("💰 Calculateur d'économie")
+            st.write("Si vous faites 10,000 requêtes par mois :")
             if 'cost_a' in df.columns and 'cost_b' in df.columns:
                 avg_cost_a = df['cost_a'].mean()
                 avg_cost_b = df['cost_b'].mean()
                 monthly_a = avg_cost_a * 10000
                 monthly_b = avg_cost_b * 10000
                 saving = monthly_a - monthly_b
-                st.success(f"**Coût avec Gemini Flash : ${monthly_a:.2f}/mois | Coût avec Groq : ${monthly_b:.2f}/mois | Économie potentielle : ${saving:.2f}/mois ({(saving/monthly_a*100) if monthly_a>0 else 80:.0f}%)**")
-                st.caption("C'est ce chiffre que tu mets dans ta candidature YC : 'We save African startups $800/mo on LLM costs'")
+                pct = (saving/monthly_a*100) if monthly_a>0 else 80
+                st.success(f"**Coût avec Gemini Flash : ${monthly_a:.2f}/mois | Coût avec Groq : ${monthly_b:.2f}/mois | Économie : ${saving:.2f}/mois ({pct:.0f}%)**")
             else:
                 st.info("Pas assez de données de coût encore.")
 

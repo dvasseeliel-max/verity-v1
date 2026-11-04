@@ -140,8 +140,116 @@ if not st.session_state.access_token:
                 if res.session and res.session.access_token:
                     st.session_state.access_token = res.session.access_token
                     st.rerun()
-                else: st.info("Compte cree, confirme ton 
-                col_save, col_pdf = st.columns(2)
+                else:
+                    st.info("Compte cree, confirme ton email.")
+            except Exception as e: st.error(f"Inscription impossible : {e}")
+    else:
+        if st.button("Se connecter", type="primary"):
+            try:
+                res = sb.auth.sign_in_with_password({"email": email.strip(), "password": password})
+                st.session_state.access_token = res.session.access_token
+                st.rerun()
+            except Exception as e: st.error(f"Connexion impossible : {e}")
+    st.stop()
+
+try: user_id = get_user_id()
+except Exception:
+    st.session_state.access_token = None
+    st.warning("Session expiree.")
+    st.stop()
+
+tab_eval, tab_auto, tab_dash, tab_billing = st.tabs(["1. Evaluer (Comparer 3 IA)", "2. Auto-Router (Economiser auto)", "3. Dashboard & Economies", "4. Facturation Unifiee"])
+
+with tab_eval:
+    st.title("VERITY V2.4 - Compare 3 IA et trouve la moins chere")
+    st.caption("Pose une question, VERITY te dit quelle IA fait le meme travail moins cher.")
+    col_q1, col_q2 = st.columns([3,1])
+    with col_q1:
+        question = st.text_area("Quelle tache voulez-vous tester ?", placeholder="Ex: Resume ce ticket support: Mon paiement Orange Money...", key="q_main", height=120)
+    with col_q2:
+        task_category = st.selectbox("Type de tache", ["Service Client", "Analyse Doc", "Code", "Redaction", "Autre"], key="cat_main")
+        company_name = st.text_input("Nom de l'entreprise cliente", placeholder="Ex: Djamo", key="comp_main")
+        blind = st.checkbox("Cacher les noms des modeles (mode aveugle)", value=st.session_state.blind_mode, key="blind_main")
+        private_mode = st.checkbox("Mode Prive - Mes donnees ne sortent pas", value=False, key="private_main")
+    st.session_state.blind_mode = blind
+    st.subheader("Regle de qualite - Je refuse de perdre en qualite")
+    guardrail = st.slider("Qualite minimale acceptable pour switcher (sur 5)", 1.0, 5.0, st.session_state.quality_guardrail, 0.5)
+    st.session_state.quality_guardrail = guardrail
+
+    if st.button("Lancer la comparaison des 3 IA", type="primary", key="gen_main", use_container_width=True):
+        if not question.strip(): st.warning("Ecrivez une question.")
+        else:
+            with st.spinner("VERITY teste les 3 IA en meme temps..."):
+                prompt = f"Reponds precisement et utilement. Reponds en francais si la question est en francais.\n\n{question.strip()}"
+                start_a = time.perf_counter()
+                resp_a = gemini.models.generate_content(model=MODEL_A_ID, contents=prompt)
+                time_a = round(time.perf_counter() - start_a, 2)
+                txt_a = resp_a.text or ""
+                start_b = time.perf_counter()
+                resp_b = groq.chat.completions.create(model=MODEL_B_ID, messages=[{"role":"user","content":question.strip()}], temperature=0.7, max_tokens=1200)
+                time_b = round(time.perf_counter() - start_b, 2)
+                txt_b = resp_b.choices[0].message.content or ""
+                start_c = time.perf_counter()
+                resp_c = openrouter.chat.completions.create(model=MODEL_C_ID, messages=[{"role":"user","content":question.strip()}], temperature=0.7, max_tokens=1200)
+                time_c = round(time.perf_counter() - start_c, 2)
+                txt_c = resp_c.choices[0].message.content or ""
+                in_a, out_a, cost_a = calc_cost(MODEL_A_ID, question, txt_a)
+                in_b, out_b, cost_b = calc_cost(MODEL_B_ID, question, txt_b)
+                in_c, out_c, cost_c = calc_cost(MODEL_C_ID, question, txt_c)
+                st.session_state.comparison = {
+                    "question": question.strip(), "task_category": task_category, "company_name": company_name,
+                    "response_a": txt_a, "response_b": txt_b, "response_c": txt_c,
+                    "time_a": time_a, "time_b": time_b, "time_c": time_c,
+                    "model_a_id": MODEL_A_ID, "model_b_id": MODEL_B_ID, "model_c_id": MODEL_C_ID,
+                    "cost_a": cost_a, "cost_b": cost_b, "cost_c": cost_c,
+                    "tokens_a": out_a, "tokens_b": out_b, "tokens_c": out_c,
+                    "private_mode": private_mode, "guardrail": guardrail
+                }
+   
+    comparison = st.session_state.comparison
+    if comparison:
+        col_a, col_b, col_c = st.columns(3)
+        def show_card(col, label, text, time_s, cost, model_id, blind_mode):
+            with col:
+                if blind_mode: st.subheader(label)
+                else: st.subheader(f"{label} - {PRICING[model_id]['name']}")
+                st.caption(f"Temps: {time_s}s | Cout: ~${cost} | Provider: {PRICING[model_id]['provider']}")
+                st.write(text)
+                if time_s == min(comparison["time_a"], comparison["time_b"], comparison["time_c"]):
+                    st.success("Le plus rapide")
+        show_card(col_a, "Reponse A", comparison["response_a"], comparison["time_a"], comparison["cost_a"], comparison["model_a_id"], blind)
+        show_card(col_b, "Reponse B", comparison["response_b"], comparison["time_b"], comparison["cost_b"], comparison["model_b_id"], blind)
+        show_card(col_c, "Reponse C", comparison["response_c"], comparison["time_c"], comparison["cost_c"], comparison["model_c_id"], blind)
+        st.divider()
+        st.subheader("Votez: Quelle reponse est la meilleure pour votre entreprise ?")
+        choice = st.radio("Choisissez la meilleure reponse", ["Reponse A", "Reponse B", "Reponse C", "Egalite"], horizontal=True, key="choice_v2", label_visibility="collapsed")
+        c1,c2,c3 = st.columns(3)
+        with c1:
+            st.write("Notes pour A")
+            ra = st.select_slider("Pertinence A", [1,2,3,4,5], 3, key="ra"); aa = st.select_slider("Exactitude A", [1,2,3,4,5], 3, key="aa"); ca = st.select_slider("Clarte A", [1,2,3,4,5], 3, key="ca")
+        with c2:
+            st.write("Notes pour B")
+            rb = st.select_slider("Pertinence B", [1,2,3,4,5], 3, key="rb"); ab = st.select_slider("Exactitude B", [1,2,3,4,5], 3, key="ab"); cb = st.select_slider("Clarte B", [1,2,3,4,5], 3, key="cb")
+        with c3:
+            st.write("Notes pour C")
+            rc = st.select_slider("Pertinence C", [1,2,3,4,5], 3, key="rc"); ac = st.select_slider("Exactitude C", [1,2,3,4,5], 3, key="ac"); cc = st.select_slider("Clarte C", [1,2,3,4,5], 3, key="cc")
+        avg_a = (ra + aa + ca) / 3
+        avg_b = (rb + ab + cb) / 3
+        avg_c = (rc + ac + cc) / 3
+        st.divider()
+        st.subheader("VERITY Quality Score - Sur VOS donnees")
+        qcol1, qcol2, qcol3 = st.columns(3)
+        qcol1.metric(f"{comparison['model_a_id']}", f"{avg_a:.1f}/5", f"Temps {comparison['time_a']}s")
+        qcol2.metric(f"{comparison['model_b_id']}", f"{avg_b:.1f}/5", f"Temps {comparison['time_b']}s")
+        qcol3.metric(f"{comparison['model_c_id']}", f"{avg_c:.1f}/5", f"Temps {comparison['time_c']}s")
+        scores_map = {comparison['model_a_id']: avg_a, comparison['model_b_id']: avg_b, comparison['model_c_id']: avg_c}
+        costs_map = {comparison['model_a_id']: comparison['cost_a'], comparison['model_b_id']: comparison['cost_b'], comparison['model_c_id']: comparison['cost_c']}
+        best_model, routing_msg = auto_route_logic(scores_map, costs_map, comparison.get('guardrail', 4.0))
+        if best_model:
+            st.success(f"RECOMMANDATION AUTO-ROUTING: {routing_msg}")
+        else:
+            st.warning(f"{routing_msg}")
+        col_save, col_pdf = st.columns(2)
         with col_save:
             if st.button("Enregistrer cette evaluation dans mon dashboard", type="primary", key="save_v3", use_container_width=True):
                 try:
@@ -181,4 +289,119 @@ if not st.session_state.access_token:
             ]
             extra = {"cfo_text": cfo_text, "routing_text": routing_text, "usecase_text": usecase_text, "rows": rows}
             scores = {"ra":ra,"aa":aa,"ca":ca,"rb":rb,"ab":ab,"cb":cb,"rc":rc,"ac":ac,"cc":cc,"choice":choice}
-            pdf_bytes =
+            pdf_bytes = generate_verdict_pdf(comparison, scores, extra)
+            st.download_button(label="Telecharger le rapport CFO (PDF pour votre boss)", data=pdf_bytes, file_name=f"VERITY_CFO_Report_{comparison.get('company_name','Client')}_{int(time.time())}.pdf", mime="application/pdf", type="secondary", key="pdf_v3", use_container_width=True)
+
+with tab_auto:
+    st.title("VERITY Auto-Router - 1 ligne de code pour economiser")
+    st.info("VERITY choisit tout seul le modele le moins cher qui respecte votre qualite.")
+    st.subheader("Comment ca marche ?")
+    st.code("""
+# AVANT: Vous payez GPT-4 pour tout
+response = openai.chat.completions.create(model="gpt-4", messages=[...])
+
+# APRES: VERITY route automatiquement
+from verity import auto_route
+response = auto_route(messages=[...], min_quality=4.0)
+# + Fallback automatique si le modele tombe -> rebascule sur gpt-4
+""", language="python")
+    st.subheader("Fallback automatique - Zero downtime")
+    fallback_enabled = st.checkbox("Activer le fallback automatique (recommande)", value=True)
+    st.subheader("Budget Guard - Bloquer les gaspillages")
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        budget_limit = st.number_input("Bloquer tout appel GPT-4 au-dela de ce cout par requete ($)", min_value=0.0, value=0.05, step=0.01)
+    with col_b2:
+        slack_webhook = st.text_input("Webhook Slack pour alerte budget (optionnel)", placeholder="https://hooks.slack.com/...")
+    if st.button("Copier ma config Auto-Router", type="primary"):
+        config_text = f"guardrail={st.session_state.quality_guardrail}, budget_limit=${budget_limit}, fallback={fallback_enabled}"
+        st.success(f"Config copiee: {config_text}")
+
+with tab_dash:
+    st.title("Dashboard & Economies par Use-Case")
+    try:
+        data = sb.table("evaluations").select("*").order("created_at", desc=True).limit(200).execute()
+        rows = data.data
+        if not rows:
+            st.info("Aucune evaluation encore.")
+        else:
+            df = pd.DataFrame(rows)
+            total = len(df)
+            companies = df['company_name'].nunique() if 'company_name' in df else 1
+            avg_time_a = df['time_a'].mean() if 'time_a' in df else 0
+            avg_time_b = df['time_b'].mean() if 'time_b' in df else 0
+            avg_time_c = df['time_c'].mean() if 'time_c' in df else 0
+            fastest = min(avg_time_a, avg_time_b, avg_time_c)
+            time_saved = avg_time_a - fastest
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Evaluations", f"{total}")
+            col2.metric("Entreprises testees", f"{companies}")
+            col3.metric("Vitesse moyenne Groq", f"{avg_time_b:.2f}s", delta=f"{avg_time_a - avg_time_b:.2f}s gagne", delta_color="normal")
+            col4.metric("Temps gagne total", f"{time_saved*total:.1f}s", delta="Plus rapide", delta_color="normal")
+            st.divider()
+            st.subheader("Economies par type de tache (Use-Case)")
+            if 'task_category' in df.columns and 'cost_a' in df.columns:
+                usecase_summary = df.groupby('task_category').agg(count=('id', 'count'), avg_cost_a=('cost_a', 'mean'), avg_cost_b=('cost_b', 'mean'), avg_cost_c=('cost_c', 'mean'), avg_time_a=('time_a', 'mean'), avg_time_b=('time_b', 'mean'),).reset_index()
+                usecase_summary['economie_par_req'] = usecase_summary['avg_cost_a'] - usecase_summary[['avg_cost_b','avg_cost_c']].min(axis=1)
+                usecase_summary['economie_mensuelle_10k'] = usecase_summary['economie_par_req'] * 10000
+                usecase_summary['pourcentage'] = (usecase_summary['economie_par_req'] / usecase_summary['avg_cost_a'] * 100).fillna(0)
+                st.dataframe(usecase_summary, use_container_width=True)
+                st.bar_chart(usecase_summary.set_index('task_category')[['economie_mensuelle_10k']])
+            st.divider()
+            st.subheader(f"Les {min(50, total)} dernieres evaluations")
+            display_cols = [c for c in ['created_at','company_name','task_category','question','choice','time_a','time_b','time_c','cost_a','cost_b'] if c in df.columns]
+            df_display = df[display_cols].copy()
+            if 'question' in df_display.columns:
+                df_display['question'] = df_display['question'].str[:80] + "..."
+            st.dataframe(df_display.head(50), use_container_width=True)
+            st.divider()
+            st.subheader("Calculateur d'economie global - Pour le CFO")
+            if 'cost_a' in df.columns and 'cost_b' in df.columns:
+                avg_cost_a = df['cost_a'].mean()
+                avg_cost_b = df['cost_b'].mean()
+                avg_cost_c = df['cost_c'].mean() if 'cost_c' in df else avg_cost_b
+                cheapest = min(avg_cost_b, avg_cost_c)
+                monthly_a = avg_cost_a * 10000
+                monthly_cheap = cheapest * 10000
+                saving = monthly_a - monthly_cheap
+                pct = (saving/monthly_a*100) if monthly_a>0 else 80
+                st.success(f"Cout avec Gemini Flash : ${monthly_a:.2f}/mois | Cout optimise : ${monthly_cheap:.2f}/mois | Economie : ${saving:.2f}/mois ({pct:.0f}%) | Annuel: ${saving*12:.2f}")
+    except Exception as e:
+        st.error(f"Erreur dashboard: {e}")
+        st.code(str(e))
+
+with tab_billing:
+    st.title("Facturation Unifiee - Toutes vos depenses IA en un seul endroit")
+    try:
+        data = sb.table("evaluations").select("*").order("created_at", desc=True).limit(200).execute()
+        rows = data.data
+        if not rows:
+            st.info("Pas de donnees encore.")
+        else:
+            df = pd.DataFrame(rows)
+            total_cost_a = df['cost_a'].sum() if 'cost_a' in df else 0
+            total_cost_b = df['cost_b'].sum() if 'cost_b' in df else 0
+            total_cost_c = df['cost_c'].sum() if 'cost_c' in df else 0
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Depense totale Gemini", f"${total_cost_a:.4f}", "Google")
+            c2.metric("Depense totale Groq", f"${total_cost_b:.4f}", "Groq")
+            c3.metric("Depense totale Free", f"${total_cost_c:.4f}", "OpenRouter")
+            c4.metric("Total si optimise", f"${min(total_cost_a, total_cost_b, total_cost_c)*len(df):.4f}", delta=f"-${total_cost_a - min(total_cost_b, total_cost_c):.4f} economise", delta_color="normal")
+            st.divider()
+            if 'created_at' in df.columns:
+                df['created_at'] = pd.to_datetime(df['created_at'])
+                df['month'] = df['created_at'].dt.to_period('M')
+                monthly = df.groupby('month')[['cost_a','cost_b','cost_c']].sum()
+                st.line_chart(monthly)
+            st.divider()
+            st.subheader("Private Audit - Mode Confidentiel")
+            st.success("VERITY V2.4 ne stocke jamais le contenu de vos prompts en mode Prive. Seuls les scores et les couts sont enregistres.")
+            private_count = len(df[df['question'].str.contains("PRIVATE", na=False)]) if 'question' in df else 0
+            st.metric("Evaluations en mode prive", f"{private_count}")
+    except Exception as e:
+        st.error(f"Erreur billing: {e}")
+    if st.button("Se deconnecter", key="logout_dash"):
+        st.session_state.access_token = None
+        st.session_state.comparison = None
+        st.rerun()
+

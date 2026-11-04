@@ -296,21 +296,17 @@ with tab_auto:
     st.title("VERITY Auto-Router - 1 ligne de code pour economiser")
     st.info("VERITY choisit tout seul le modele le moins cher qui respecte votre qualite.")
     st.subheader("Comment ca marche ?")
-    st.code("""
-# AVANT: Vous payez GPT-4 pour tout
-response = openai.chat.completions.create(model="gpt-4", messages=[...])
-
-# APRES: VERITY route automatiquement
-from verity import auto_route
-response = auto_route(messages=[...], min_quality=4.0)
-# + Fallback automatique si le modele tombe -> rebascule sur gpt-4
-""", language="python")
+    st.text("AVANT: Vous payez GPT-4 pour tout\nresponse = openai.chat.completions.create(model='gpt-4', messages=[...])\n\nAPRES: VERITY route automatiquement\nfrom verity import auto_route\nresponse = auto_route(messages=[...], min_quality=4.0)\n# Fallback auto si le modele tombe -> rebascule sur gpt-4")
     st.subheader("Fallback automatique - Zero downtime")
     fallback_enabled = st.checkbox("Activer le fallback automatique (recommande)", value=True)
     st.subheader("Budget Guard - Bloquer les gaspillages")
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        budget_limit = st.number_input("Bloquer tout appel GPT-4 au-dela de ce cout par requete ($)", min_value=0.0, value=0.05, step=0.01)
+        budget_text = st.text_input("Bloquer tout appel GPT-4 au-dela de ce cout par requete ($)", value="0.05")
+        try:
+            budget_limit = float(budget_text.replace(",", "."))
+        except Exception:
+            budget_limit = 0.05
     with col_b2:
         slack_webhook = st.text_input("Webhook Slack pour alerte budget (optionnel)", placeholder="https://hooks.slack.com/...")
     if st.button("Copier ma config Auto-Router", type="primary"):
@@ -404,4 +400,3 @@ with tab_billing:
         st.session_state.access_token = None
         st.session_state.comparison = None
         st.rerun()
-

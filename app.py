@@ -140,7 +140,8 @@ if not st.session_state.access_token:
                 if res.session and res.session.access_token:
                     st.session_state.access_token = res.session.access_token
                     st.rerun()
-                else: st.info("Compte cree, confirme toncol_save, col_pdf = st.columns(2)
+                else: st.info("Compte cree, confirme ton 
+                col_save, col_pdf = st.columns(2)
         with col_save:
             if st.button("Enregistrer cette evaluation dans mon dashboard", type="primary", key="save_v3", use_container_width=True):
                 try:
